@@ -27,7 +27,7 @@ do
 done
   pushd interp
   #$mmake OPTIMIZ=3 locallib
-  $mmake FFLAGS="-O 3" CFLAGS="-O 3 -fast-transcendentals -no-prec-div -ip -no-prec-sqrt" locallib
+  $mmake OPTIMIZ=3 CFLAGS="-fast-transcendentals -no-prec-div -ip -no-prec-sqrt" locallib
   $mmake clean
   popd
 fi
