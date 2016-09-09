@@ -22,11 +22,6 @@ SUPP_OPT = -openmp
 
 OPTIMIZ = 2 
 
-ifneq ($(EZ_OPT) , "")
-OPTIMIZ = $(EZ_OPT)
-toto = 1
-endif
-
 #OPTIMIZ = -O 3 -fast
 #C_OPTIMIZ = -O 2
 #F_OPTIMIZ = -O 2
@@ -78,9 +73,6 @@ FICHIERS = $(FICHIERS_FTN90) $(FICHIERS_C)
 
 obj: $(OBJET)
 #Produire les fichiers objets (.o) pour tous les fichiers
-	echo "EZ_OPT is: " $(EZ_OPT)	
-	echo "OPTIMIZ is: " $(OPTIMIZ)	
-	echo "toto is: " $(toto)	
 	rm -f f_ezscint.f90
 
 gen_ec_arch_dir:
