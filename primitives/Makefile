@@ -45,7 +45,7 @@ rmnlib_v:
 rmnlib_version.f: rmnlib_v
 	
 rmnlib_v_sed: 
-	sed "s@EC_ARCH_VAR Date_of_Build@$(EC_ARCH) `date +"%a %b %e %G"| cut -d' ' -f1-5`@" rmnlib_version.f > rmnlib_version_new.f
+	sed "s@EC_ARCH_VAR Date_of_Build@$(EC_ARCH) `date +%c| cut -d' ' -f1-6`@" rmnlib_version.f > rmnlib_version_new.f
 	mv rmnlib_version_new.f rmnlib_version.f
 
 #rmnlib_version.o: rmnlib_v_sed
