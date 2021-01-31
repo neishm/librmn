@@ -32,7 +32,7 @@ default: obj
 
 include $(RPN_TEMPLATE_LIBS)/include/makefile_suffix_rules.inc
 
-OBJECTS= armn_compress_32.o zfstlib.o c_zfstlib.o
+OBJECTS= armn_compress_32.o zfstlib.o c_zfstlib.o extern.o
 
 tarball:  armn_compress_32.c c_zfstlib.c  zfstlib.f90  zfstlib.h  Makefile
 	tar cfzv /data/armnraid1/www/ssm/sources/compresseur_$(TARRLS)_all.tgz armn_compress_32.c c_zfstlib.c  zfstlib.f90  zfstlib.h Makefile 
@@ -47,7 +47,7 @@ gen_ec_arch_dir:
 #Creer le repertoire $EC_ARCH 
 	mkdir -p ./$(EC_ARCH)
 
-locallib: gen_ec_arch_dir $(TEMPLIB)(armn_compress_32.o) $(TEMPLIB)(zfstlib.o) $(TEMPLIB)(c_zfstlib.o)
+locallib: gen_ec_arch_dir $(TEMPLIB)(armn_compress_32.o) $(TEMPLIB)(zfstlib.o) $(TEMPLIB)(c_zfstlib.o) $(TEMPLIB)(extern.o)
 
 genlib: $(OBJECTS)
 #Creer ou mettre a jour la programmatheque 

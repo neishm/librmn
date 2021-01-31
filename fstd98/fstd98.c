@@ -399,7 +399,8 @@ int c_fstecr(word *field_in, void * work, int npak,
   int in_datyp = in_datyp_ori & 0xFFBF ; /* suppress missing value flag (64) */
   int sizefactor ; /* number of bytes per data item */
   int IEEE_64=0  ; /* flag 64 bit IEEE (type 5 or 8) */
-
+  int extern_compress ;
+  
   file_table_entry *f;
   stdf_dir_keys *stdf_entry;
   buffer_interface_ptr buffer;
@@ -414,6 +415,11 @@ int c_fstecr(word *field_in, void * work, int npak,
   char nomvar[5]={' ',' ',' ',' ','\0'};
   char grtyp[2]={' ','\0'};
 
+  extern_compress = in_datyp_ori & 32;
+  if (extern_compress) {
+    in_datyp_ori &= 0xFFDF;
+    in_datyp &= 0xFFDF;
+  }
 
   is_missing = in_datyp_ori & 64 ; /* will be cancelled later if not supported or no missing values detected */
   if ( (in_datyp&0xF) == 8) {
@@ -675,9 +681,10 @@ int c_fstecr(word *field_in, void * work, int npak,
   }
 
   if (image_mode_copy) {                /* no pack/unpack, used by editfst */
-    if (datyp > 128) {
+    if ((datyp > 128) || extern_compress) {
       lngw = field[0];                  /* first element is length */
 /*      fprintf(stderr,"Debug+ datyp=%d ecriture mode image lngw=%d\n",datyp,lngw); */
+      stdf_entry->datyp |= extern_compress;  // Add extern flag back to output.
       buffer->nbits = (keys_len + lngw) * bitmot;
       for (i=0; i < lngw+1; i++)
         buffer->data[keys_len+i] = field[i];
@@ -941,7 +948,28 @@ int c_fstecr(word *field_in, void * work, int npak,
     } /* end switch */
   }   /* end if image mode copy */
 
+  /* deflate the record? */
+  if ((!image_mode_copy && (extern_compress||extern_auto_encode)) || (image_mode_copy && !extern_compress && extern_auto_encode)) {
+    int nw = (buffer->nbits / bitmot - keys_len);
+    int complevel = 4;
+    /* For uncompressed data, shuffle before deflate. */
+    /* This usually improves the compression of numeric types. */
+    int extern_ret;
+    if ((in_datyp_ori < 128) && ((nbits % 8) == 0)) {
+      extern_ret = encode_zlib (buffer->data+keys_len, nw, nbits/8);
+    }
+    else {
+      extern_ret = encode_zlib (buffer->data+keys_len, nw, 0);
+    }
+    if (extern_ret == 0) {
+      buffer->nwords = keys_len + buffer->data[keys_len];
+      buffer->nbits = bitmot * buffer->nwords;
+      stdf_entry->datyp |= 32;
+    }
+  }
 
+   
+   
   /* write record to file and add entry to directory */
   ier = c_xdfput(iun,handle,buffer);
   if (msg_level <= INFORM) {
@@ -1771,6 +1799,7 @@ int c_fstluk(word *field, int handle, int *ni, int *nj, int *nk)
   PackFunctionPointer packfunc;
   double tempfloat=99999.0;
   int has_missing = 0;    /* missing data flag (bit with value 64 in datatype) */
+  int extern_compress = 0;   /* external compression library flag */
   int *field_out;
   short *s_field_out;
   signed char *b_field_out;
@@ -1786,7 +1815,10 @@ int c_fstluk(word *field, int handle, int *ni, int *nj, int *nk)
   *nk = stdf_entry->nk;
   has_missing = stdf_entry->datyp & 64 ;          /* get missing data flag */
   stdf_entry->datyp = stdf_entry->datyp & 0xBF ;  /* suppress missing data flag */
-  xdf_datatyp = stdf_entry->datyp ;
+  extern_compress = stdf_entry->datyp & 32 ;                 /* get extern flag */
+  stdf_entry->datyp = stdf_entry->datyp & 0xDF ;  /* suppress extern flag */
+
+  xdf_datatyp = stdf_entry->datyp & 0xDF ; /* suppress extern flag */
 
   if (xdf_double)
     packfunc = &compact_double;
@@ -1813,6 +1845,9 @@ int c_fstluk(word *field, int handle, int *ni, int *nj, int *nk)
   else
     lng2 = lng;
 
+  /* Allocate enough space for fully decompressed field */
+  if (extern_compress) lng2 = *ni * *nj * *nk * 4;
+
 /*  printf("Debug+ fstluk lng2 = %d\n",lng2); */
   /* allocate 8 more bytes in case of realingment for 64 bit data */
   if ((work_field = alloca(8+(lng2+10)*sizeof(word))) == NULL) {
@@ -1832,6 +1867,12 @@ int c_fstluk(word *field, int handle, int *ni, int *nj, int *nk)
   buf->nbits = -1;
   ier = c_xdfget2(handle,buf,stdf_aux_keys);
   if (ier < 0) return(ier);
+  if (extern_compress && !(image_mode_copy && !extern_auto_decode)) {
+    int nw = buf->data[1];
+    ier = decode_extern (buf->data);
+    if (ier != 0) return ier;
+  }
+
   if ((stdf_aux_keys[0] != 0) && (stdf_aux_keys[1] != 0)) {
     printf("c_fstluk aux_keys[0]=%d, aux_keys[1]=%d\n",stdf_aux_keys[0],stdf_aux_keys[1]);
     sprintf(errmsg,"wrong version of fstd98 (%d), recompile with a more recent version",
@@ -2041,7 +2082,7 @@ int c_fstluk(word *field, int handle, int *ni, int *nj, int *nk)
 
   if (msg_level <= INFORM) {
     sprintf(string,"Read(%d)",buf->iun);
-    stdf_entry->datyp = stdf_entry->datyp | has_missing;
+    stdf_entry->datyp = stdf_entry->datyp | has_missing | extern_compress;
     print_std_parms(stdf_entry,string,prnt_options,0);
   }
   if(has_missing) {
@@ -2403,6 +2444,26 @@ int c_fstopl(char *option, int value, int getmode)
     return val;
   }
 
+  if (strcmp(option,"EXTERN_AUTO_ENCODE") == 0) {
+    if (getmode){
+      if (getmode == 2) val = extern_auto_encode;
+    }else{
+      extern_auto_encode = value;        
+    }
+    if(getmode == 1 || msg_level <= INFORM) fprintf(stdout,"c_fstopl option EXTERN_AUTO_ENCODE=%d\n",extern_auto_encode);
+    return val;
+  }
+
+  if (strcmp(option,"EXTERN_AUTO_DECODE") == 0) {
+    if (getmode){
+      if (getmode == 2) val = extern_auto_decode;
+    }else{
+      extern_auto_decode = value;        
+    }
+    if(getmode == 1 || msg_level <= INFORM) fprintf(stdout,"c_fstopl option EXTERN_AUTO_DECODE=%d\n",extern_auto_decode);
+    return val;
+  }
+
   if (strcmp(option,"REDUCTION32") == 0) {
     if (getmode){
       if (getmode == 2) val = downgrade_32;
@@ -2582,6 +2643,8 @@ int c_fstprm(int handle,
   *npas = stdf_entry->npas;
   *nbits = stdf_entry->nbits;
   *datyp = stdf_entry->datyp;
+  // Mask out external compression flag for auto decode mode.
+  if (extern_auto_decode) *datyp &= 0xDF;
   *ip1 = stdf_entry->ip1;
   *ip2 = stdf_entry->ip2;
   *ip3 = stdf_entry->ip3;

@@ -2019,13 +2019,14 @@ static void print_std_parms(stdf_dir_keys *stdf_entry, char *pre, char *option,
     snprintf(v_npas,sizeof(v_npas),"%8d",stdf_entry->npas);
   
   if(stdf_entry->datyp & 64)cmsgp='m';  /* m will be added to data type if there are missing values in record */
+  if(stdf_entry->datyp & 32)cmsgp='z';  /* Z will be added to data type if it is deflated with zlib */
   if (strstr(option,"NODTY"))
     v_dty[0]='\0';
   else 
     if (stdf_entry->datyp > 128)  /* force lower case data type code if compressed */
-      snprintf(v_dty,sizeof(v_dty),"%1c%1c%2d",tolower(cdt[stdf_entry->datyp&0x3F]),cmsgp,stdf_entry->nbits);  /* suppress bits for 64 and 128 */
+      snprintf(v_dty,sizeof(v_dty),"%1c%1c%2d",tolower(cdt[stdf_entry->datyp&0x1F]),cmsgp,stdf_entry->nbits);  /* suppress bits for 64 and 128 */
     else
-      snprintf(v_dty,sizeof(v_dty),"%1c%1c%2d",cdt[stdf_entry->datyp&0x3F],cmsgp,stdf_entry->nbits);  /* suppress bits for 64 and 128 */
+      snprintf(v_dty,sizeof(v_dty),"%1c%1c%2d",cdt[stdf_entry->datyp&0x1F],cmsgp,stdf_entry->nbits);  /* suppress bits for 32 and 64 and 128 */
 
   if (strstr(option,"GRIDINFO")) {
     F2Cl lc1=1,lc2=7,lc3=7,lc4=8,lc5=8;

@@ -889,6 +889,10 @@ int xdf_nsplit = 1;
 int FTN_Bitmot = 8 * bytesperword;
 //! No pack/unpack, used by editfst
 int image_mode_copy = 0;
+//! Apply external compression routine automatically.
+int extern_auto_encode = 0;
+//! Remove external compression routine automatically before returning data.
+int extern_auto_decode = 1;
 //! Chekcpoint mode, no closing of the file
 int xdf_checkpoint = 0;
 //! If one std seq file is opened, the limit of opened files becomes 128
@@ -965,6 +969,10 @@ extern int xdf_enforc8;
 extern int FTN_Bitmot;
 //! No pack/unpack, used by editfst
 extern int image_mode_copy;
+//! Apply external compression routine automatically.
+extern int extern_auto_encode;
+//! Remove external compression routine automatically before returning data.
+extern int extern_auto_decode;
 //! Chekcpoint mode, no closing of the file
 extern int xdf_checkpoint;
 //! If one std seq file is opened, the limit of opened files becomes 128
