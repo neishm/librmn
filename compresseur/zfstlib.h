@@ -9,6 +9,7 @@
 #define MINIMUM           3
 #define PARALLELOGRAM     4
 #define PARALLELOGRAM32   5
+#define PARALLELOGRAM_RICE 6
 
 #define BEST    1
 #define FAST    0

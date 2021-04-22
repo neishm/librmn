@@ -181,7 +181,7 @@ switch (op_code)
       }
    }
     
-  c_fstzip(zfld_lle,     &zlng_lle,     us_fld, ni, nj, PARALLELOGRAM, 1, 3, nbits, 0);
+  c_fstzip(zfld_lle,     &zlng_lle,     us_fld, ni, nj, PARALLELOGRAM_RICE, 1, 3, nbits, 0);
   
 /*    if (debug)
       {
@@ -278,6 +278,7 @@ void c_fstzip(unsigned int *zfld, int *zlng, unsigned int *fld, int ni, int nj, 
       c_fstzip_minimum(zfld, zlng, (unsigned short *)fld, ni, nj, step, nbits, (word *) &zfstzip);
       break;
       
+    case PARALLELOGRAM_RICE:
     case PARALLELOGRAM:
       c_fstzip_parallelogram(zfld, zlng, (unsigned short *)fld, ni, nj, step, nbits, (word *) &zfstzip);
       break;
@@ -308,6 +309,7 @@ void c_fstunzip(unsigned int *fld, unsigned int *zfld, int ni, int nj, int nbits
       c_fstunzip_minimum((unsigned short *)fld, zfld, ni, nj, zfstzip.step, zfstzip.nbits, (word *)&zfstzip);
       break;
       
+    case PARALLELOGRAM_RICE:
     case PARALLELOGRAM:
       c_fstunzip_parallelogram((unsigned short *)fld, zfld, ni, nj, zfstzip.step, zfstzip.nbits, (word *)&zfstzip);
       break;
@@ -841,7 +843,8 @@ void packTokensParallelogram(unsigned int z[], int *zlng, unsigned short ufld[],
   int k11, k12, k21, k22, nbits2;
   unsigned int nbits_req_container, gt16, token;
   int *ufld_dst, *ufld4;
-  
+  unsigned char rice = (((_fstzip*)(header))->predictor_type == PARALLELOGRAM_RICE);
+
   debug = 0;
   lastSlot = 0;
   cur = z;
@@ -939,6 +942,59 @@ if (once == 0)
       k = FTN2C(i,j,ni);
       local_max = ufld_dst[k];
       lcl_m = ((i + istep - 1) >= ni ? ni - i : istep - 1);
+      if (rice) {
+      // Find an optimal tunable parameter for the Rice coding.
+      int cost[16];
+      for (int c = 0; c < 16; c++) cost[c] = 0;
+      for (n=0; n <= lcl_n; n++)
+        {
+        for (m=0; m <= lcl_m; m++)
+          {
+          k = FTN2C(i+m,j+n,ni);
+          // Tranform the residue to a non-negative value.
+          // Need a one-sided geometric distribution for the Rice code.
+          if (ufld_dst[k] >= 0) ufld_dst[k] = (ufld_dst[k]<<1);
+          else ufld_dst[k] = ((-ufld_dst[k])<<1)-1;
+          if (local_max < ufld_dst[k]) local_max = ufld_dst[k];
+          // Calculate cost of each choice of tuning parameter.
+          for (int c = 0; c < 16; c++) cost[c] += (ufld_dst[k]>>c) + 1 + c;
+          }
+        }
+      if (local_max == 0)
+        {
+        stuff(0, cur, 32, nbits_req_container, lastWordShifted, spaceInLastWord);
+        continue;
+        }
+      // Reusing nbits_needed variable as optimal tuning parameter.
+      nbits2 = 0;
+      while ((nbits2 < 15) && (cost[nbits2+1]<cost[nbits2])) nbits2++;
+      // Encode this parameter, offset by 1 because zero case means no
+      // data to encode (handled above)
+      nbits_needed = nbits2 + 1;
+      stuff(nbits_needed, cur, 32, nbits_req_container, lastWordShifted, spaceInLastWord);
+      // Encode all the values in this tile using the Rice code.
+      for (n=0; n <= lcl_n; n++)
+        {
+        for (m=0; m <= lcl_m; m++)
+          {
+          k = FTN2C(i+m,j+n,ni);
+          token = (unsigned int) (ufld_dst[k]);
+          // Encode the unary prefix.
+          while (token >= (1<<nbits2))
+            {
+            stuff(1, cur, 32, 1, lastWordShifted, spaceInLastWord);
+            token -= (1<<nbits2);
+            }
+          stuff(0, cur, 32, 1, lastWordShifted, spaceInLastWord);
+          // Encode the remainder.
+          if (nbits2 > 0) stuff(token, cur, 32, nbits2, lastWordShifted, spaceInLastWord);
+
+          }
+        }
+
+      }
+      else
+      {
       for (n=0; n <= lcl_n; n++)
         {
         for (m=0; m <= lcl_m; m++)
@@ -999,7 +1055,7 @@ if (once == 0)
           }
         break;
         } 
-       
+       }
        }
     }
 
@@ -1043,6 +1099,7 @@ void unpackTokensParallelogram(unsigned short ufld[], unsigned int z[], int ni, 
   int *ufld_tmp;
   int k11, k12, k21, k22;
   unsigned int nbits_req_container, gt16, token, nbits2;
+  unsigned char rice;
 
   bitPackInWord = 32;
   
@@ -1053,6 +1110,8 @@ void unpackTokensParallelogram(unsigned short ufld[], unsigned int z[], int ni, 
   ufld_tmp = (int *) malloc(ni*nj*sizeof(int));
   
   extract(nbits_req_container, cur, 32, 3, curword, bitPackInWord); 
+
+  rice = (((_fstzip*)(header))->predictor_type == PARALLELOGRAM_RICE);
   
   for (i=1; i <= ni; i++)
    {
@@ -1076,6 +1135,33 @@ void unpackTokensParallelogram(unsigned short ufld[], unsigned int z[], int ni, 
       {
       lcl_m = ((i + istep - 1) >= ni ? ni - i : istep - 1);
       extract(nbits_needed, cur, 32, nbits_req_container, curword, bitPackInWord); 
+      // Extract Rice codes?
+      if (rice && (nbits_needed > 0))
+      {
+      // nbits2 represents the Rice tuning parameter.
+      nbits2 = nbits_needed - 1;
+      for (n=0; n <= lcl_n; n++)
+        {
+        for (m=0; m <= lcl_m; m++)
+          {
+          k = FTN2C(i+m,j+n,ni);
+          ufld_tmp[k] = 0; 
+          // Extract unary prefix code.
+          while (1) {
+            extract(token, cur, 32, 1, curword, bitPackInWord);
+            if (token == 0) break;
+            ufld_tmp[k] += (1<<nbits2);
+          }
+          // Extract remainder.
+          if (nbits2 > 0) {
+            extract(token, cur, 32, nbits2, curword, bitPackInWord);
+            ufld_tmp[k] += token;
+          }
+          }
+        }
+      }
+      else
+      {
       switch (nbits_needed)
         {
         case 0:
@@ -1116,6 +1202,7 @@ void unpackTokensParallelogram(unsigned short ufld[], unsigned int z[], int ni, 
             }  
           }
          } 
+         }
                 
         }
       }
@@ -1128,6 +1215,12 @@ void unpackTokensParallelogram(unsigned short ufld[], unsigned int z[], int ni, 
       k12 = FTN2C(i-1,j  ,ni);
       k21 = FTN2C(i,  j-1,ni);
       k22 = FTN2C(i,  j,  ni);
+      // If decoded from Rice codes, need to re-transform back to a
+      // signed value.
+      if (rice) {
+         if (ufld_tmp[k22] & 1) ufld_tmp[k22] = -((ufld_tmp[k22]+1)>>1);
+         else ufld_tmp[k22] = (ufld_tmp[k22]>>1);
+      }
       ufld[k22] =  ufld_tmp[k22] + (ufld[k21]+ufld[k12]-ufld[k11]);
       }
    }  
